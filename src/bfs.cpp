@@ -4,14 +4,15 @@
 
 int bfs(Graph::Graph& g, int gSize, VtxType s, std::vector<WgtType>& dist)
 {
+    using namespace std;
 
     // preprocessing
-    std::queue<VtxType> Q;                                  // queue init
+    queue<VtxType> Q;                                  // queue init
 
-    std::vector<bool> explored(gSize, false);               // explored flag
+    vector<bool> explored(gSize, false);               // explored flag
                                                             // init
 
-    std::fill(dist.begin(), dist.end(), VTX_NOT_CONNECTED); // dist init
+    fill(dist.begin(), dist.end(), VTX_NOT_CONNECTED); // dist init
 
     // initial step
     Q.push(s);
@@ -20,8 +21,8 @@ int bfs(Graph::Graph& g, int gSize, VtxType s, std::vector<WgtType>& dist)
 
     // iterative step
     VtxType v;                       // processing vertex
-    std::vector<VtxType> nbors;      // neighbors of processing vertex
-    std::vector<WgtType> nbors_wgts; // neighbors' weights of processing vertex
+    vector<VtxType> nbors;      // neighbors of processing vertex
+    vector<WgtType> nbors_wgts; // neighbors' weights of processing vertex
     WgtType farthest_dist;           // current farthest dist from source
 
     while(!Q.empty())
