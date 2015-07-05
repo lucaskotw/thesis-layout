@@ -52,6 +52,7 @@ int load_graph_from_mm(char* filePath, Graph::Graph& g)
     // }
 
     std::ifstream fin(filePath);
+    char buff[FILE_BUFFER_SIZE]; // buffer to read each line
 
     // Ignore headers and comments:
     while (fin.peek() == '%') fin.ignore(2048, '\n');
@@ -59,8 +60,12 @@ int load_graph_from_mm(char* filePath, Graph::Graph& g)
     // get the size and basic information of the mm file
     int rr;
     int cc;
-    int nZero;
-    fin >> rr >> cc >> nZero;
+    double nZero;
+    fin.getline(buff, FILE_BUFFER_SIZE); // (CHECK) why this be null?
+    read_edge_from_input(buff, FILE_BUFFER_SIZE, rr, cc, nZero);
+    // std::cout << u << v << pWgt << std::endl;
+    // fin >> rr >> cc >> nZero;
+    std::cout << rr << cc << nZero << std::endl;
     // if ((ret_code = mm_read_mtx_crd_size(f, &Rows, &Cols, &nZero)) !=0)
     // {
     //     exit(1);
@@ -73,8 +78,17 @@ int load_graph_from_mm(char* filePath, Graph::Graph& g)
     VtxType u;
     VtxType v;
     WgtType pWgt;
-    char buff[FILE_BUFFER_SIZE]; // buffer to read each line
-    fin.getline(buff, FILE_BUFFER_SIZE); // (CHECK) why this be null?
+    
+    // fin.getline(buff, FILE_BUFFER_SIZE); // (CHECK) why this be null?
+    // read_edge_from_input(buff, FILE_BUFFER_SIZE, u, v, pWgt);
+    // std::cout << u << v << pWgt << std::endl;
+    // fin.getline(buff, FILE_BUFFER_SIZE); // (CHECK) why this be null?
+    // read_edge_from_input(buff, FILE_BUFFER_SIZE, u, v, pWgt);
+    // std::cout << u << v << pWgt << std::endl;
+    // fin.getline(buff, FILE_BUFFER_SIZE); // (CHECK) why this be null?
+    // read_edge_from_input(buff, FILE_BUFFER_SIZE, u, v, pWgt);
+    // std::cout << u << v << pWgt << std::endl;
+
     while (fin.getline(buff, FILE_BUFFER_SIZE))
     {
         read_edge_from_input(buff, FILE_BUFFER_SIZE, u, v, pWgt);

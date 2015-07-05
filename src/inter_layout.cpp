@@ -2,9 +2,14 @@
 #include "bfs.h"
 #include "distance.h"
 #include "sm.h"
+#include "log.h"
 #include <math.h>
 #include <algorithm>  // std::find, std::max_element
 #include <utility>    // std::pair
+#include <fstream>    // log out first few iteration coord, center, and radii
+#include <string>     // string for output coord file
+#include <boost/date_time/posix_time/posix_time.hpp>   // for current time check
+#include <boost/date_time/posix_time/posix_time_io.hpp>
 
 
 #define INFINITY_ENERGY 100000
@@ -16,6 +21,9 @@
  ******************************************************************************/
 
 static int inc_progress = 0;
+template <typename T> int sgn(T val) {
+    return (T(0) < val) - (val < T(0));
+}
 
 /******************************************************************************
  *                Standard library operator custom overload                   *
@@ -157,7 +165,8 @@ static
 double repulsive_force(std::pair<WgtType, WgtType>& pos_diff, double r_i, double r_j)
 {
 	using namespace std;
-	return pow((1+IDEAL_BOUNDARY_FACTOR)*(r_i+r_j), 2)/ pos_diff_dist(pos_diff);
+	// return pow(10+r_i+r_j, 2)/ pos_diff_dist(pos_diff);
+	return pow((0.5)*(r_i+r_j), 2)/ pos_diff_dist(pos_diff);
 }
 
 
@@ -166,16 +175,114 @@ double attractive_force(std::pair<WgtType, WgtType>& pos_diff, double r_i, doubl
 {
 	using namespace std;
 	
-	return pow(pos_diff_dist(pos_diff), 2)/((1+IDEAL_BOUNDARY_FACTOR)*(r_i+r_j));
+	// return pow(pos_diff_dist(pos_diff), 2)/(10+r_i+r_j);
+	return pow(pos_diff_dist(pos_diff), 2)/((0.5)*(r_i+r_j));
 }
 
 
 static
-void force_direct_with_torque(Graph::Graph& g, Graph::Graph& cg,
+void calculate_rotate_angle(Graph::Graph& g, int cls, std::vector<int>& cluster_nodes,
+	std::vector<int>& clusters,
+	std::vector< std::vector<CoordType> >& coord,
+	std::vector< std::vector<CoordType> >& center_coord,
+	std::vector<WgtType>& radii,
+	std::vector< WgtType >& rotate_angles)
+{
+	using namespace std;
+	// torque
+    int r_u; // current node id
+    int r_v; // adjacent node id
+    CoordType n_c_x; // center of neighbor's in different cluster
+    CoordType n_c_y;
+    CoordType r_u_x; // x components of raidus of u
+    CoordType r_u_y;
+    CoordType c_x;  // center of u's x coord
+    CoordType c_y;
+    vector<VtxType> nbors; // current node id
+    double sin_coeff = 0.0;
+    double cos_coeff = 0.0;
+    pair<CoordType, CoordType> force;
+    pair<CoordType, CoordType> arm;
+    double force_val;
+    double arm_val;
+    double t_angle; // angle of torque
+
+    // topo algo
+    for (int j=0; j<cluster_nodes.size(); ++j)
+    {
+		r_u = cluster_nodes.at(j);
+        r_u_x = coord.at(r_u).at(0);
+        r_u_y = coord.at(r_u).at(1);
+        c_x = center_coord.at(cls).at(0);
+        c_y = center_coord.at(cls).at(1);
+        arm = make_pair(r_u_x - c_x, r_u_y - c_y);
+        arm_val = sqrt( pow(arm.first, 2) + pow(arm.second, 2));
+
+		nbors = g.adj(r_u);
+		for (int n=0; n<nbors.size(); ++n)
+		{
+			r_v = nbors.at(n);
+			if ( clusters.at(r_u) != clusters.at(r_v) )
+			{
+				n_c_x = center_coord.at(clusters.at(r_v)).at(0);
+            	n_c_y = center_coord.at(clusters.at(r_v)).at(1);
+
+				// Rotate Step 1: calculate force and angle
+				force = make_pair(n_c_x-r_u_x, n_c_y-r_u_y);
+                force_val = sqrt( pow(force.first, 2) + pow(force.second, 2));
+                force = make_pair(force.first/force_val, force.second/force_val);
+                t_angle = (arm_val/radii.at(cls))*M_PI/2*sgn(arm.first*force.second-arm.second*force.first)*(arm.first*force.first+arm.second*force.second);
+                rotate_angles.at(cls) += t_angle;
+			}
+		}
+
+    }
+
+	// for (int j=0; j<cluster_nodes.size(); ++j)
+	// {
+	// 	r_u = cluster_nodes.at(j);
+ //        r_u_x = coord.at(r_u).at(0);
+ //        r_u_y = coord.at(r_u).at(1);
+ //        c_x = center_coord.at(cls).at(0);
+ //        c_y = center_coord.at(cls).at(1);
+ //        arm = make_pair(r_u_x - c_x, r_u_y - c_y);
+ //        arm_val = sqrt( pow(arm.first, 2) + pow(arm.second, 2));
+
+	// 	nbors = g.adj(r_u);
+	// 	for (int n=0; n<nbors.size(); ++n)
+	// 	{
+	// 		r_v = nbors.at(n);
+	// 		if ( clusters.at(r_u) != clusters.at(r_v) )
+	// 		{
+	// 			n_c_x = center_coord.at(clusters.at(r_v)).at(0);
+ //            	n_c_y = center_coord.at(clusters.at(r_v)).at(1);
+
+	// 			// Rotate Step 1: calculate force and angle
+	// 			force = make_pair(n_c_x-r_u_x, n_c_y-r_u_y);
+ //                force_val = sqrt( pow(force.first, 2) + pow(force.second, 2));
+ //                t_angle = acos( (arm.first*force.first+arm.second*force.second) / (arm_val*force_val) );
+
+ //                // Rotate Step 2
+ //                // force_val = 1; // make force to be unit
+ //                force_val = 1/force_val; // make force to be inverse to the distance
+ //                sin_coeff += arm_val*force_val*cos(t_angle);
+ //                cos_coeff += arm_val*force_val*sin(t_angle);
+	// 		}
+	// 	}
+	// }
+
+	// // Step 3
+ //    cout << sin_coeff << " " << cos_coeff << endl;
+ //    rotate_angles.at(cls) = atan(-cos_coeff/sin_coeff) * M_PI / 180;
+
+}
+
+
+static
+void force_direct_with_torque(char* outfilePath, Graph::Graph& g, Graph::Graph& cg,
 	std::vector< std::pair<int, int> > c_edges,
 	DenseMat& cluster_dist_mat,
 	std::vector<int>& clusters,
-	std::vector< std::vector<int> >& cluster_nodes_list,
 	std::vector< std::vector<CoordType> >& center_coord,
 	std::vector< WgtType >& radii,
 	std::vector< std::vector<CoordType> >& coord,
@@ -189,11 +296,19 @@ void force_direct_with_torque(Graph::Graph& g, Graph::Graph& cg,
 	// 3. calculate rotate angle
 	// 4. shift and rotate the cluster nodes and corresponding nodes
 	using namespace std;
+	using namespace boost::posix_time;
 
 	// algorithm declaration
 	double step = initStep;
 	double curr_energy = INFINITY_ENERGY;
 	double pre_energy;
+
+	// for iteration dumping
+	fstream fo;
+
+	// [modified!] clusters_nodes
+	vector<VtxType> cluster_nodes; // id: vtx id of clustered graph
+                                  // val: vtx id in whole graph
 
 	// force equilibrium declaration
 	vector< pair<WgtType, WgtType> > node_disp(cg.get_num_vtxs());
@@ -212,26 +327,35 @@ void force_direct_with_torque(Graph::Graph& g, Graph::Graph& cg,
 	double disp_v_y;
 	
 
-    // torque
-    int r_u; // current node id
-    int r_v; // adjacent node id
-    CoordType n_c_x; // center of neighbor's in different cluster
-    CoordType n_c_y;
-    CoordType r_u_x; // x components of raidus of u
-    CoordType r_u_y;
-    CoordType c_x;  // center of u's x coord
+	CoordType c_x;  // center of u's x coord
     CoordType c_y;
     CoordType new_x; // relative to center nodes' x coordinates
     CoordType new_y; // relative to center nodes' x coordinates
-    vector<VtxType> nbors; // current node id
-    double sin_coeff = 0.0;
-    double cos_coeff = 0.0;
-    pair<CoordType, CoordType> force;
-    pair<CoordType, CoordType> arm;
-    double force_val;
-    double arm_val;
-    double t_angle; // angle of torque
+
     double angle;   // perform rotation for current node
+
+    // dump before force process
+    fo.open("out/"+string(outfilePath)+"_start.coord", fstream::out);
+	for (int i=0; i<coord.size(); ++i)
+	{
+		fo << coord.at(i).at(0) << " " << coord.at(i).at(1) << endl;
+	}
+	fo.close();
+	// center coord
+	fo.open("out/"+string(outfilePath)+"_start.center", fstream::out);
+	for (int i=0; i<center_coord.size(); ++i)
+	{
+		fo << center_coord.at(i).at(0) << " " << center_coord.at(i).at(1) << endl;
+	}
+	fo.close();
+
+	// angle
+	fo.open("out/"+string(outfilePath)+"_start.angle", fstream::out);
+	for (int i=0; i<rotate_angles.size(); ++i)
+	{
+		fo << rotate_angles.at(i) << endl;
+	}
+	fo.close();
 
 	for (int t=0; t<iteration; t++)
 	{
@@ -295,50 +419,23 @@ void force_direct_with_torque(Graph::Graph& g, Graph::Graph& cg,
 
 		// step 3: torque equilibrium
 		fill(rotate_angles.begin(), rotate_angles.end(), 0);
-		// for (int i=0; i<cg.get_num_vtxs(); ++i)
-		// {
-		// 	for (int j=0; j<cluster_nodes_list.at(i).size(); ++j)
-		// 	{
-		// 		r_u = cluster_nodes_list.at(i).at(j);
-	 //            r_u_x = coord.at(r_u).at(0);
-	 //            r_u_y = coord.at(r_u).at(1);
-	 //            c_x = center_coord.at(i).at(0);
-	 //            c_y = center_coord.at(i).at(1);
-	 //            arm = make_pair(r_u_x - c_x, r_u_y - c_y);
-	 //            arm_val = sqrt( pow(arm.first, 2) + pow(arm.second, 2));
+		for (int i=0; i<cg.get_num_vtxs(); ++i)
+		{
+			cluster_nodes.resize(0);
+        	for (int c=0; c<clusters.size(); ++c)
+            	if (clusters.at(c) == i) cluster_nodes.push_back(c);
+			
+			calculate_rotate_angle(g, i, cluster_nodes, clusters,
+				coord, center_coord, radii, rotate_angles);
 
-		// 		nbors = g.adj(r_u);
-		// 		for (int n=0; n<nbors.size(); ++n)
-		// 		{
-		// 			r_v = nbors.at(n);
-		// 			if ( clusters.at(r_u) != clusters.at(r_v) )
-		// 			{
-		// 				n_c_x = center_coord.at(clusters.at(r_v)).at(0);
-  //                   	n_c_y = center_coord.at(clusters.at(r_v)).at(1);
-
-		// 				// Rotate Step 1: calculate force and angle
-		// 				force = make_pair(n_c_x-r_u_x, n_c_y-r_u_y);
-	 //                    force_val = sqrt( pow(force.first, 2) + pow(force.second, 2));
-	 //                    t_angle = acos( (arm.first*force.first+arm.second*force.second) / (arm_val*force_val) );
-
-	 //                    // Rotate Step 2
-	 //                    // force_val = 1; // make force to be unit
-	 //                    force_val = 1/force_val; // make force to be inverse to the distance
-	 //                    sin_coeff += arm_val*force_val*cos(t_angle);
-	 //                    cos_coeff += arm_val*force_val*sin(t_angle);
-		// 			}
-		// 		}
-		// 	}
-
-		// 	// Step 3
-	 //        cout << sin_coeff << " " << cos_coeff << endl;
-	 //        rotate_angles.at(i) = atan(-cos_coeff/sin_coeff) * M_PI / 180;
-
-		// }
+		}
 
 		// step 4: shift and rotate the cluster nodes and corresponding nodes
 		for (int i=0; i<cg.get_num_vtxs(); ++i)
 		{
+			cluster_nodes.resize(0);
+        	for (int c=0; c<clusters.size(); ++c)
+            	if (clusters.at(c) == i) cluster_nodes.push_back(c);
 
 			disp_val = sqrt(pow(node_disp.at(i).first, 2) + pow(node_disp.at(i).second, 2));
 			c_x = center_coord.at(i).at(0);
@@ -346,24 +443,25 @@ void force_direct_with_torque(Graph::Graph& g, Graph::Graph& cg,
 			c_x += step * node_disp.at(i).first/disp_val;
 			c_y += step * node_disp.at(i).second/disp_val;
 
-			for (int j=0; j<cluster_nodes_list.at(i).size(); ++j)
+			for (int j=0; j<cluster_nodes.size(); ++j)
 			{
 				angle = rotate_angles.at(i);
 				// shift nodes
-				coord.at(cluster_nodes_list.at(i).at(j)).at(0) -= center_coord.at(i).at(0);
-				coord.at(cluster_nodes_list.at(i).at(j)).at(1) -= center_coord.at(i).at(1);
+				coord.at(cluster_nodes.at(j)).at(0) -= center_coord.at(i).at(0);
+				coord.at(cluster_nodes.at(j)).at(1) -= center_coord.at(i).at(1);
 
 				// rotate nodes
-				new_x = coord.at(cluster_nodes_list.at(i).at(j)).at(0);
-        		new_y = coord.at(cluster_nodes_list.at(i).at(j)).at(1);
-				coord.at(cluster_nodes_list.at(i).at(j)).at(0) = new_x*cos(angle) - new_y*sin(angle);
-        		coord.at(cluster_nodes_list.at(i).at(j)).at(1) = new_x*sin(angle) + new_y*cos(angle);
+				new_x = coord.at(cluster_nodes.at(j)).at(0);
+        		new_y = coord.at(cluster_nodes.at(j)).at(1);
+				coord.at(cluster_nodes.at(j)).at(0) = new_x*cos(angle) + new_y*sin(angle);
+        		coord.at(cluster_nodes.at(j)).at(1) = -new_x*sin(angle) + new_y*cos(angle);
 
 				// match to new center
-				coord.at(cluster_nodes_list.at(i).at(j)).at(0) += c_x;
-				coord.at(cluster_nodes_list.at(i).at(j)).at(1) += c_y;
+				coord.at(cluster_nodes.at(j)).at(0) += c_x;
+				coord.at(cluster_nodes.at(j)).at(1) += c_y;
 
 			}
+
 			center_coord.at(i).at(0) = c_x;
 			center_coord.at(i).at(1) = c_y;
 
@@ -381,39 +479,49 @@ void force_direct_with_torque(Graph::Graph& g, Graph::Graph& cg,
 		// check convergence
 
 
-		// logout every step coordinates?
-		// if (t < 2)
-		// {
-		// 	// disp
-		// 	cout << "current displacement" << endl;
-		// 	for (int i=0; i<node_disp.size(); ++i)
-		// 	{
-		// 		cout << node_disp.at(i).first << " " << node_disp.at(i).second << endl;
-		// 	}
+		// dump information of each iteration
+		if (t < 5)
+		{
+			// coordinates
+			fo.open("out/"+string(outfilePath)+"_"+to_string(t)+".coord", fstream::out);
+			for (int i=0; i<coord.size(); ++i)
+			{
+				fo << coord.at(i).at(0) << " " << coord.at(i).at(1) << endl;
+			}
+			fo.close();
 
-		// 	// center coord
-		// 	cout << "iter #" << t << " center_coord" << endl;
-		// 	for (int i=0; i<center_coord.size(); ++i)
-		// 	{
-		// 		cout << center_coord.at(i).at(0) << " " << center_coord.at(i).at(0) << endl;
-		// 	}
-		// }
+			// center coord
+			fo.open("out/"+string(outfilePath)+"_"+to_string(t)+".center", fstream::out);
+			for (int i=0; i<center_coord.size(); ++i)
+			{
+				fo << center_coord.at(i).at(0) << " " << center_coord.at(i).at(0) << endl;
+			}
+			fo.close();
+
+			// angle
+			fo.open("out/"+string(outfilePath)+"_"+to_string(t)+".angle", fstream::out);
+			for (int i=0; i<rotate_angles.size(); ++i)
+			{
+				fo << rotate_angles.at(i) << endl;
+			}
+			fo.close();
+		}
 	}
 
 }
+
 
 
 /******************************************************************************
  *                            Main Process                                    *
  ******************************************************************************/
 
-int inter_layout(Graph::Graph& g,
+int inter_layout(char* outfilePath, Graph::Graph& g,
 	DenseMat& distMat,
     std::vector< std::vector<CoordType> >& center_coord,
     std::vector< WgtType >& radii,
     int cls,
     std::vector<int>& clusters,
-    std::vector< std::vector<int> >& cluster_nodes_list,
     std::vector< std::vector<CoordType> >& coord)
 {
 
@@ -468,7 +576,7 @@ int inter_layout(Graph::Graph& g,
     	cout << center_coord.at(i).at(0) << ", " << center_coord.at(i).at(1) << endl;
     }
 
-    force_direct_with_torque(g, cg, c_edges, cluster_dist_mat, clusters, cluster_nodes_list,
+    force_direct_with_torque(outfilePath, g, cg, c_edges, cluster_dist_mat, clusters,
     						 center_coord, radii, coord, 100, init_step);
 
     cout << "after center_coord" << endl;
